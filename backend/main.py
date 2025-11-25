@@ -511,41 +511,43 @@ async def create_license(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     """Create a new license (admin only)"""
-    
+
     # Admin token check
     if credentials.credentials != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    
+
     try:
         license_key = request.license_key or generate_license_key()
-        
+
         # Check if license already exists
         existing = db.query(License).filter(License.license_key == license_key).first()
         if existing:
             raise HTTPException(status_code=400, detail="License key already exists")
-        
-        # Create new license
+
+        # Create license row
         expires_at = datetime.utcnow() + timedelta(days=request.expires_in_days)
-        
+
         new_license = License(
             license_key=license_key,
             expires_at=expires_at,
             max_instances=request.max_instances
         )
-        
+
         db.add(new_license)
+        db.flush()      # <-- FIX: ensures insert actually hits DB and errors show up
         db.commit()
-        
+
         logger.info(f"New license created: {license_key}")
-        
+
         return {
             "license_key": license_key,
             "expires_at": expires_at.isoformat(),
             "max_instances": request.max_instances,
             "message": "License created successfully"
         }
-        
+
     except Exception as e:
+        db.rollback()
         logger.error(f"Error creating license: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
